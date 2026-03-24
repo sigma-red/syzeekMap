@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>syzeekMap - Network Mapping Tool</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <div class="header-left">
+                <h1>syzeekMap</h1>
+                <span class="subtitle">Passive Network Mapping</span>
+            </div>
+            <div class="header-center">
+                <div class="stats-bar">
+                    <div class="stat"><span id="stat-endpoints">0</span> Endpoints</div>
+                    <div class="stat"><span id="stat-internal">0</span> Internal</div>
+                    <div class="stat"><span id="stat-external">0</span> External</div>
+                    <div class="stat"><span id="stat-connections">0</span> Connections</div>
+                    <div class="stat"><span id="stat-dns">0</span> DNS Domains</div>
+                </div>
+            </div>
+            <div class="header-right">
+                <div id="connection-status" class="status-indicator disconnected">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Disconnected</span>
+                </div>
+                <span id="last-updated" class="last-updated"></span>
+            </div>
+        </header>
+
+        <!-- Main layout -->
+        <div id="main">
+            <!-- Left sidebar - controls and endpoint list -->
+            <aside id="sidebar">
+                <div class="sidebar-section">
+                    <h3>Controls</h3>
+                    <div class="control-group">
+                        <input type="text" id="search-input" placeholder="Search endpoints..." />
+                    </div>
+                    <div class="control-group">
+                        <label><input type="checkbox" id="filter-internal"> Internal only</label>
+                        <label><input type="checkbox" id="filter-external"> External only</label>
+                    </div>
+                    <div class="control-group">
+                        <button id="btn-refresh" class="btn">Refresh Graph</button>
+                        <button id="btn-fit" class="btn">Fit View</button>
+                    </div>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Endpoints <span id="endpoint-count" class="badge">0</span></h3>
+                    <div id="endpoint-list" class="scrollable-list"></div>
+                </div>
+            </aside>
+
+            <!-- Center - graph visualization -->
+            <div id="graph-container">
+                <svg id="graph-svg"></svg>
+                <div id="graph-tooltip" class="tooltip hidden"></div>
+            </div>
+
+            <!-- Right panel - detail view -->
+            <aside id="detail-panel" class="hidden">
+                <div class="detail-header">
+                    <h3 id="detail-title">Details</h3>
+                    <button id="detail-close" class="btn-close">&times;</button>
+                </div>
+                <div id="detail-content"></div>
+            </aside>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
