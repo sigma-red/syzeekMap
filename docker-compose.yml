@@ -1,0 +1,14 @@
+services:
+  syzeekmap:
+    build: .
+    image: syzeekmap:latest
+    container_name: syzeekmap
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    # On Security Onion, Elasticsearch is on the host network.
+    # Use host networking so the container can reach localhost:9200
+    # without needing to figure out the Docker bridge IP.
+    network_mode: host
