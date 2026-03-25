@@ -29,6 +29,12 @@ class Endpoint:
     total_bytes_received: int = 0
     connection_count: int = 0
     sysmon_computer_name: Optional[str] = None
+    # OT/ICS fields
+    device_type: Optional[str] = None  # plc, hmi, rtu, historian, eng_workstation, scada_server
+    ot_protocols: set[str] = field(default_factory=set)  # modbus, dnp3, s7comm, bacnet, enip
+    ot_vendor: Optional[str] = None
+    ot_functions: set[str] = field(default_factory=set)  # Modbus func codes, DNP3 obj groups, etc.
+    purdue_level: Optional[int] = None  # Estimated Purdue model level (0-5)
 
     def to_dict(self) -> dict:
         return {
@@ -52,6 +58,11 @@ class Endpoint:
             "total_bytes_received": self.total_bytes_received,
             "connection_count": self.connection_count,
             "sysmon_computer_name": self.sysmon_computer_name,
+            "device_type": self.device_type,
+            "ot_protocols": sorted(self.ot_protocols),
+            "ot_vendor": self.ot_vendor,
+            "ot_functions": sorted(list(self.ot_functions)[:50]),
+            "purdue_level": self.purdue_level,
         }
 
     def to_node(self) -> dict:
@@ -70,6 +81,9 @@ class Endpoint:
             "open_port_count": len(self.open_ports),
             "connection_count": self.connection_count,
             "os_info": sorted(self.os_info),
+            "device_type": self.device_type,
+            "ot_protocols": sorted(self.ot_protocols),
+            "purdue_level": self.purdue_level,
         }
 
 
@@ -201,11 +215,13 @@ class NetworkMap:
         internal = sum(1 for e in self.endpoints.values() if e.is_internal)
         external = sum(1 for e in self.endpoints.values() if e.is_internal is False)
         unknown = sum(1 for e in self.endpoints.values() if e.is_internal is None)
+        ot_devices = sum(1 for e in self.endpoints.values() if e.ot_protocols)
         return {
             "total_endpoints": len(self.endpoints),
             "internal_endpoints": internal,
             "external_endpoints": external,
             "unknown_endpoints": unknown,
+            "ot_devices": ot_devices,
             "total_connections": len(self.connections),
             "total_dns_domains": len(self.dns_map),
             "version": self.version,

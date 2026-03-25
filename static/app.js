@@ -165,6 +165,8 @@
 
     // ── Node helpers ───────────────────────────────────────────────
     function nodeColor(d) {
+        // OT devices get orange regardless of internal/external
+        if (d.ot_protocols && d.ot_protocols.length > 0) return "#f97316";
         if (d.is_internal === true) return "#3b82f6";
         if (d.is_internal === false) return "#ef4444";
         return "#64748b";
@@ -199,6 +201,8 @@
         html += `<div class="tt-line">Connections: ${d.connection_count}</div>`;
         html += `<div class="tt-line">Ports: ${d.open_port_count}</div>`;
         if (d.services.length) html += `<div class="tt-line">Services: ${d.services.join(", ")}</div>`;
+        if (d.ot_protocols && d.ot_protocols.length) html += `<div class="tt-line" style="color:#f97316">OT: ${d.ot_protocols.join(", ")}${d.device_type ? " (" + d.device_type + ")" : ""}</div>`;
+        if (d.purdue_level !== null && d.purdue_level !== undefined) html += `<div class="tt-line">Purdue Level: ${d.purdue_level}</div>`;
         if (d.os_info.length) html += `<div class="tt-line">OS: ${d.os_info.join(", ")}</div>`;
         tooltip.innerHTML = html;
         tooltip.style.left = event.pageX + 12 + "px";
@@ -228,11 +232,18 @@
         document.getElementById("endpoint-count").textContent = sorted.length;
 
         list.innerHTML = sorted.map(n => {
-            const tag = n.is_internal === true ? '<span class="ep-tag internal">INT</span>'
+            let tag = n.is_internal === true ? '<span class="ep-tag internal">INT</span>'
                 : n.is_internal === false ? '<span class="ep-tag external">EXT</span>' : '';
+            if (n.ot_protocols && n.ot_protocols.length > 0) {
+                const dtype = n.device_type ? n.device_type.toUpperCase().replace("_", " ") : "OT";
+                tag += `<span class="ep-tag ot">${dtype}</span>`;
+            }
             const label = n.label !== n.ip ? `<div class="ep-label">${escapeHtml(n.label)}</div>` : '';
-            const services = n.services.length ? n.services.slice(0, 3).join(", ") : "";
-            const meta = services ? `<div class="ep-meta">${escapeHtml(services)}</div>` : "";
+            const svcList = n.services.length ? n.services.slice(0, 3) : [];
+            if (n.ot_protocols && n.ot_protocols.length > 0) {
+                for (const p of n.ot_protocols) { if (!svcList.includes(p)) svcList.push(p); }
+            }
+            const meta = svcList.length ? `<div class="ep-meta">${escapeHtml(svcList.slice(0, 5).join(", "))}</div>` : "";
             const active = selectedNodeId === n.id ? " active" : "";
             return `<div class="endpoint-item${active}" data-ip="${n.id}">
                 <div class="ep-ip">${tag} ${escapeHtml(n.ip)}</div>
@@ -293,6 +304,11 @@
         if (ep.mac_addresses.length) html += gridRow("MAC Addresses", ep.mac_addresses.join(", "));
         if (ep.os_info.length) html += gridRow("OS Info", ep.os_info.join(", "));
         html += gridRow("Internal", ep.is_internal === true ? "Yes" : ep.is_internal === false ? "No" : "Unknown");
+        if (ep.device_type) html += gridRow("Device Type", ep.device_type.toUpperCase().replace("_", " "));
+        if (ep.ot_vendor) html += gridRow("OT Vendor", ep.ot_vendor);
+        if (ep.purdue_level !== null && ep.purdue_level !== undefined) {
+            html += `<span class="label">Purdue Level</span><span class="value"><span class="purdue-level l${ep.purdue_level}">Level ${ep.purdue_level}</span></span>`;
+        }
         html += gridRow("First Seen", formatTime(ep.first_seen));
         html += gridRow("Last Seen", formatTime(ep.last_seen));
         html += gridRow("Total Connections", ep.connection_count.toLocaleString());
@@ -320,6 +336,21 @@
         if (ep.protocols && ep.protocols.length) {
             html += `<div class="detail-section"><h4>Protocols</h4>
                 <ul class="detail-list">${ep.protocols.map(p => `<li>${escapeHtml(p)}</li>`).join("")}</ul></div>`;
+        }
+
+        // ── OT Protocols ──
+        if (ep.ot_protocols && ep.ot_protocols.length) {
+            html += `<div class="detail-section"><h4>OT/ICS Protocols</h4><div>`;
+            for (const p of ep.ot_protocols) {
+                html += `<span class="ot-badge">${escapeHtml(p)}</span> `;
+            }
+            html += `</div></div>`;
+        }
+
+        // ── OT Functions ──
+        if (ep.ot_functions && ep.ot_functions.length) {
+            html += `<div class="detail-section"><h4>OT Function Codes (${ep.ot_functions.length})</h4>`;
+            html += `<ul class="detail-list">${ep.ot_functions.slice(0, 50).map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul></div>`;
         }
 
         // ── User Agents ──
@@ -408,6 +439,7 @@
 
         document.getElementById("filter-internal").addEventListener("change", filterAndRefresh);
         document.getElementById("filter-external").addEventListener("change", filterAndRefresh);
+        document.getElementById("filter-ot").addEventListener("change", filterAndRefresh);
 
         document.getElementById("btn-refresh").addEventListener("click", fetchGraph);
 
@@ -433,18 +465,22 @@
         const search = document.getElementById("search-input").value.toLowerCase();
         const internalOnly = document.getElementById("filter-internal").checked;
         const externalOnly = document.getElementById("filter-external").checked;
+        const otOnly = document.getElementById("filter-ot").checked;
 
         let filtered = { ...graphData };
         let nodeIds = new Set(filtered.nodes.map(n => n.id));
 
-        if (search || internalOnly || externalOnly) {
+        if (search || internalOnly || externalOnly || otOnly) {
             filtered.nodes = filtered.nodes.filter(n => {
                 if (internalOnly && n.is_internal !== true) return false;
                 if (externalOnly && n.is_internal !== false) return false;
+                if (otOnly && (!n.ot_protocols || n.ot_protocols.length === 0)) return false;
                 if (search) {
                     return n.ip.toLowerCase().includes(search)
                         || n.label.toLowerCase().includes(search)
-                        || n.services.some(s => s.toLowerCase().includes(search));
+                        || n.services.some(s => s.toLowerCase().includes(search))
+                        || (n.ot_protocols && n.ot_protocols.some(p => p.toLowerCase().includes(search)))
+                        || (n.device_type && n.device_type.toLowerCase().includes(search));
                 }
                 return true;
             });
@@ -479,6 +515,7 @@
         document.getElementById("stat-external").textContent = stats.external_endpoints || 0;
         document.getElementById("stat-connections").textContent = stats.connection_count || stats.total_connections || 0;
         document.getElementById("stat-dns").textContent = stats.total_dns_domains || 0;
+        document.getElementById("stat-ot").textContent = stats.ot_devices || 0;
         if (stats.last_updated) {
             document.getElementById("last-updated").textContent = "Updated: " + formatTime(stats.last_updated);
         }

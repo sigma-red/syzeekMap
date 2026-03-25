@@ -18,6 +18,8 @@
     --node-internal: #3b82f6;
     --node-external: #ef4444;
     --node-unknown: #64748b;
+    --node-ot: #f97316;
+    --accent-orange: #f97316;
     --edge-color: #334155;
     --edge-highlight: #60a5fa;
 }
@@ -188,6 +190,33 @@ body {
 }
 .ep-tag.internal { background: rgba(59, 130, 246, 0.2); color: var(--node-internal); }
 .ep-tag.external { background: rgba(239, 68, 68, 0.2); color: var(--node-external); }
+.ep-tag.ot { background: rgba(249, 115, 22, 0.2); color: var(--node-ot); }
+
+.ot-badge {
+    display: inline-block;
+    padding: 1px 5px;
+    background: rgba(249, 115, 22, 0.15);
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    border-radius: 3px;
+    font-size: 10px;
+    margin: 1px;
+    color: var(--accent-orange);
+}
+
+.purdue-level {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+}
+.purdue-level.l0 { background: #991b1b; }
+.purdue-level.l1 { background: #c2410c; }
+.purdue-level.l2 { background: #b45309; }
+.purdue-level.l3 { background: #4d7c0f; }
+.purdue-level.l4 { background: #0e7490; }
+.purdue-level.l5 { background: #6d28d9; }
 
 /* Graph container */
 #graph-container {

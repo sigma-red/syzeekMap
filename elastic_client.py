@@ -103,6 +103,36 @@ class ElasticClient:
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
     # ------------------------------------------------------------------
+    # Zeek ICS/OT protocol queries
+    # ------------------------------------------------------------------
+
+    def fetch_zeek_modbus(self, since: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "modbus"}})
+        yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
+
+    def fetch_zeek_dnp3(self, since: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "dnp3"}})
+        yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
+
+    def fetch_zeek_s7comm(self, since: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "s7comm"}})
+        yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
+
+    def fetch_zeek_bacnet(self, since: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "bacnet"}})
+        yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
+
+    def fetch_zeek_enip(self, since: str | None = None) -> Generator[dict, None, None]:
+        """EtherNet/IP (CIP) protocol."""
+        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "enip"}})
+        yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
+
+    def fetch_zeek_cip(self, since: str | None = None) -> Generator[dict, None, None]:
+        """CIP (Common Industrial Protocol) over EtherNet/IP."""
+        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "cip"}})
+        yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
+
+    # ------------------------------------------------------------------
     # Sysmon queries
     # ------------------------------------------------------------------
 

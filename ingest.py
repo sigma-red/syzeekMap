@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 
 from elastic_client import ElasticClient
-from models import NetworkMap
+from models import Endpoint, NetworkMap
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,12 @@ class IngestEngine:
             "zeek_x509": 0,
             "zeek_software": 0,
             "zeek_kerberos": 0,
+            "zeek_modbus": 0,
+            "zeek_dnp3": 0,
+            "zeek_s7comm": 0,
+            "zeek_bacnet": 0,
+            "zeek_enip": 0,
+            "zeek_cip": 0,
             "sysmon_net": 0,
             "sysmon_proc": 0,
             "sysmon_dns": 0,
@@ -107,6 +113,31 @@ class IngestEngine:
         for doc in self.es.fetch_zeek_kerberos(since):
             self._process_zeek_kerberos(doc)
             counts["zeek_kerberos"] += 1
+
+        # --- Zeek ICS/OT protocols ---
+        for doc in self.es.fetch_zeek_modbus(since):
+            self._process_zeek_modbus(doc)
+            counts["zeek_modbus"] += 1
+
+        for doc in self.es.fetch_zeek_dnp3(since):
+            self._process_zeek_dnp3(doc)
+            counts["zeek_dnp3"] += 1
+
+        for doc in self.es.fetch_zeek_s7comm(since):
+            self._process_zeek_s7comm(doc)
+            counts["zeek_s7comm"] += 1
+
+        for doc in self.es.fetch_zeek_bacnet(since):
+            self._process_zeek_bacnet(doc)
+            counts["zeek_bacnet"] += 1
+
+        for doc in self.es.fetch_zeek_enip(since):
+            self._process_zeek_enip(doc)
+            counts["zeek_enip"] += 1
+
+        for doc in self.es.fetch_zeek_cip(since):
+            self._process_zeek_cip(doc)
+            counts["zeek_cip"] += 1
 
         # --- Sysmon network connections (Event ID 3) ---
         for doc in self.es.fetch_sysmon_network(since):
@@ -349,6 +380,339 @@ class IngestEngine:
             ep = self.net_map.get_or_create_endpoint(dst_ip)
             ep.services.add("kerberos")
             _update_timestamps(ep, ts)
+
+    # ------------------------------------------------------------------
+    # OT/ICS protocol processors
+    # ------------------------------------------------------------------
+
+    # Well-known Modbus function codes for device-type inference
+    _MODBUS_FUNC_NAMES = {
+        1: "read_coils", 2: "read_discrete_inputs", 3: "read_holding_regs",
+        4: "read_input_regs", 5: "write_single_coil", 6: "write_single_reg",
+        15: "write_multiple_coils", 16: "write_multiple_regs",
+        43: "read_device_id",
+    }
+
+    def _classify_ot_device(self, ep: Endpoint):
+        """Heuristic classification of OT device type based on observed behavior."""
+        if ep.device_type:
+            return  # Already classified
+        protos = ep.ot_protocols
+        funcs = ep.ot_functions
+        services = ep.services
+        ports = set(ep.open_ports.keys())
+
+        # Engineering workstation: initiates ICS connections but also has IT services
+        if protos and any(s in services for s in ("http", "ssl/tls", "kerberos", "ssh")):
+            ep.device_type = "eng_workstation"
+            ep.purdue_level = 3
+            return
+
+        # Historian / SCADA server: many connections, runs databases, HTTP
+        if protos and ep.connection_count > 50 and any(p in ports for p in (1433, 3306, 5432, 8080)):
+            ep.device_type = "historian"
+            ep.purdue_level = 3
+            return
+
+        # HMI: speaks ICS protocols + has a web UI on common HMI ports
+        if protos and any(p in ports for p in (80, 443, 8080, 8443)):
+            ep.device_type = "hmi"
+            ep.purdue_level = 2
+            return
+
+        # RTU: speaks DNP3 (common for remote telemetry)
+        if "dnp3" in protos:
+            ep.device_type = "rtu"
+            ep.purdue_level = 1
+            return
+
+        # PLC: speaks modbus/s7comm/enip and has limited other services
+        if protos & {"modbus", "s7comm", "enip", "cip"}:
+            ep.device_type = "plc"
+            ep.purdue_level = 1
+            return
+
+        # BACnet device: building automation
+        if "bacnet" in protos:
+            ep.device_type = "bacnet_device"
+            ep.purdue_level = 1
+            return
+
+        # Generic OT if has ICS protocols but no clear classification
+        if protos:
+            ep.device_type = "ot_device"
+            ep.purdue_level = 1
+
+    def _process_zeek_modbus(self, doc: dict):
+        """Process Zeek modbus.log entries."""
+        ts = _safe(doc, "@timestamp")
+        src_ip = _safe(doc, "source", "ip")
+        dst_ip = _safe(doc, "destination", "ip")
+        dst_port = _safe(doc, "destination", "port", default=502)
+        func_code = _safe(doc, "zeek", "modbus", "function")
+        exception = _safe(doc, "zeek", "modbus", "exception")
+        unit_id = _safe(doc, "zeek", "modbus", "unit_id")
+
+        if not src_ip or not dst_ip:
+            return
+
+        # Source is the Modbus master/client (SCADA/HMI)
+        src_ep = self.net_map.get_or_create_endpoint(src_ip)
+        src_ep.is_internal = _is_internal(src_ip) if src_ep.is_internal is None else src_ep.is_internal
+        src_ep.ot_protocols.add("modbus")
+        src_ep.protocols.add("modbus")
+        _update_timestamps(src_ep, ts)
+
+        # Destination is the Modbus slave/server (PLC/RTU)
+        dst_ep = self.net_map.get_or_create_endpoint(dst_ip)
+        dst_ep.is_internal = _is_internal(dst_ip) if dst_ep.is_internal is None else dst_ep.is_internal
+        dst_ep.ot_protocols.add("modbus")
+        dst_ep.protocols.add("modbus")
+        dst_ep.services.add("modbus")
+        if dst_port:
+            if dst_port not in dst_ep.open_ports:
+                dst_ep.open_ports[dst_port] = set()
+            dst_ep.open_ports[dst_port].add("modbus")
+        _update_timestamps(dst_ep, ts)
+
+        # Track function codes
+        if func_code is not None:
+            func_name = self._MODBUS_FUNC_NAMES.get(func_code, f"fc_{func_code}")
+            src_ep.ot_functions.add(f"modbus:{func_name}")
+            dst_ep.ot_functions.add(f"modbus:{func_name}")
+
+        # Connection
+        conn = self.net_map.get_or_create_connection(src_ip, dst_ip, dst_port, "tcp")
+        conn.service = "modbus"
+        conn.count += 1
+        _update_timestamps(conn, ts)
+
+        self._classify_ot_device(src_ep)
+        self._classify_ot_device(dst_ep)
+
+    def _process_zeek_dnp3(self, doc: dict):
+        """Process Zeek dnp3.log entries."""
+        ts = _safe(doc, "@timestamp")
+        src_ip = _safe(doc, "source", "ip")
+        dst_ip = _safe(doc, "destination", "ip")
+        dst_port = _safe(doc, "destination", "port", default=20000)
+        fc_request = _safe(doc, "zeek", "dnp3", "fc_request")
+        fc_reply = _safe(doc, "zeek", "dnp3", "fc_reply")
+        iin = _safe(doc, "zeek", "dnp3", "iin")
+
+        if not src_ip or not dst_ip:
+            return
+
+        src_ep = self.net_map.get_or_create_endpoint(src_ip)
+        src_ep.is_internal = _is_internal(src_ip) if src_ep.is_internal is None else src_ep.is_internal
+        src_ep.ot_protocols.add("dnp3")
+        src_ep.protocols.add("dnp3")
+        _update_timestamps(src_ep, ts)
+
+        dst_ep = self.net_map.get_or_create_endpoint(dst_ip)
+        dst_ep.is_internal = _is_internal(dst_ip) if dst_ep.is_internal is None else dst_ep.is_internal
+        dst_ep.ot_protocols.add("dnp3")
+        dst_ep.protocols.add("dnp3")
+        dst_ep.services.add("dnp3")
+        if dst_port:
+            if dst_port not in dst_ep.open_ports:
+                dst_ep.open_ports[dst_port] = set()
+            dst_ep.open_ports[dst_port].add("dnp3")
+        _update_timestamps(dst_ep, ts)
+
+        if fc_request:
+            src_ep.ot_functions.add(f"dnp3:req_{fc_request}")
+        if fc_reply:
+            dst_ep.ot_functions.add(f"dnp3:rsp_{fc_reply}")
+
+        conn = self.net_map.get_or_create_connection(src_ip, dst_ip, dst_port, "tcp")
+        conn.service = "dnp3"
+        conn.count += 1
+        _update_timestamps(conn, ts)
+
+        self._classify_ot_device(src_ep)
+        self._classify_ot_device(dst_ep)
+
+    def _process_zeek_s7comm(self, doc: dict):
+        """Process Zeek s7comm.log entries (Siemens S7 protocol)."""
+        ts = _safe(doc, "@timestamp")
+        src_ip = _safe(doc, "source", "ip")
+        dst_ip = _safe(doc, "destination", "ip")
+        dst_port = _safe(doc, "destination", "port", default=102)
+        rosctr = _safe(doc, "zeek", "s7comm", "rosctr")
+        func_code = _safe(doc, "zeek", "s7comm", "function_code")
+        subfunction = _safe(doc, "zeek", "s7comm", "subfunction")
+        error_class = _safe(doc, "zeek", "s7comm", "error_class")
+
+        if not src_ip or not dst_ip:
+            return
+
+        src_ep = self.net_map.get_or_create_endpoint(src_ip)
+        src_ep.is_internal = _is_internal(src_ip) if src_ep.is_internal is None else src_ep.is_internal
+        src_ep.ot_protocols.add("s7comm")
+        src_ep.protocols.add("s7comm")
+        _update_timestamps(src_ep, ts)
+
+        dst_ep = self.net_map.get_or_create_endpoint(dst_ip)
+        dst_ep.is_internal = _is_internal(dst_ip) if dst_ep.is_internal is None else dst_ep.is_internal
+        dst_ep.ot_protocols.add("s7comm")
+        dst_ep.protocols.add("s7comm")
+        dst_ep.services.add("s7comm")
+        dst_ep.ot_vendor = dst_ep.ot_vendor or "Siemens"
+        if dst_port:
+            if dst_port not in dst_ep.open_ports:
+                dst_ep.open_ports[dst_port] = set()
+            dst_ep.open_ports[dst_port].add("s7comm")
+        _update_timestamps(dst_ep, ts)
+
+        if rosctr:
+            label = f"s7comm:rosctr_{rosctr}"
+            src_ep.ot_functions.add(label)
+            dst_ep.ot_functions.add(label)
+        if func_code:
+            src_ep.ot_functions.add(f"s7comm:func_{func_code}")
+
+        conn = self.net_map.get_or_create_connection(src_ip, dst_ip, dst_port, "tcp")
+        conn.service = "s7comm"
+        conn.count += 1
+        _update_timestamps(conn, ts)
+
+        self._classify_ot_device(src_ep)
+        self._classify_ot_device(dst_ep)
+
+    def _process_zeek_bacnet(self, doc: dict):
+        """Process Zeek bacnet.log entries (Building Automation)."""
+        ts = _safe(doc, "@timestamp")
+        src_ip = _safe(doc, "source", "ip")
+        dst_ip = _safe(doc, "destination", "ip")
+        dst_port = _safe(doc, "destination", "port", default=47808)
+        bvlc_function = _safe(doc, "zeek", "bacnet", "bvlc_function")
+        service_choice = _safe(doc, "zeek", "bacnet", "service_choice")
+        object_type = _safe(doc, "zeek", "bacnet", "object_type")
+        vendor = _safe(doc, "zeek", "bacnet", "vendor")
+
+        if not src_ip or not dst_ip:
+            return
+
+        src_ep = self.net_map.get_or_create_endpoint(src_ip)
+        src_ep.is_internal = _is_internal(src_ip) if src_ep.is_internal is None else src_ep.is_internal
+        src_ep.ot_protocols.add("bacnet")
+        src_ep.protocols.add("bacnet")
+        _update_timestamps(src_ep, ts)
+
+        dst_ep = self.net_map.get_or_create_endpoint(dst_ip)
+        dst_ep.is_internal = _is_internal(dst_ip) if dst_ep.is_internal is None else dst_ep.is_internal
+        dst_ep.ot_protocols.add("bacnet")
+        dst_ep.protocols.add("bacnet")
+        dst_ep.services.add("bacnet")
+        if vendor:
+            dst_ep.ot_vendor = vendor
+        if dst_port:
+            if dst_port not in dst_ep.open_ports:
+                dst_ep.open_ports[dst_port] = set()
+            dst_ep.open_ports[dst_port].add("bacnet")
+        _update_timestamps(dst_ep, ts)
+
+        if bvlc_function:
+            src_ep.ot_functions.add(f"bacnet:bvlc_{bvlc_function}")
+        if service_choice:
+            src_ep.ot_functions.add(f"bacnet:svc_{service_choice}")
+
+        conn = self.net_map.get_or_create_connection(src_ip, dst_ip, dst_port, "udp")
+        conn.service = "bacnet"
+        conn.count += 1
+        _update_timestamps(conn, ts)
+
+        self._classify_ot_device(src_ep)
+        self._classify_ot_device(dst_ep)
+
+    def _process_zeek_enip(self, doc: dict):
+        """Process Zeek enip.log entries (EtherNet/IP)."""
+        ts = _safe(doc, "@timestamp")
+        src_ip = _safe(doc, "source", "ip")
+        dst_ip = _safe(doc, "destination", "ip")
+        dst_port = _safe(doc, "destination", "port", default=44818)
+        command = _safe(doc, "zeek", "enip", "command")
+        session_handle = _safe(doc, "zeek", "enip", "session_handle")
+        sender_context = _safe(doc, "zeek", "enip", "sender_context")
+
+        if not src_ip or not dst_ip:
+            return
+
+        src_ep = self.net_map.get_or_create_endpoint(src_ip)
+        src_ep.is_internal = _is_internal(src_ip) if src_ep.is_internal is None else src_ep.is_internal
+        src_ep.ot_protocols.add("enip")
+        src_ep.protocols.add("enip")
+        _update_timestamps(src_ep, ts)
+
+        dst_ep = self.net_map.get_or_create_endpoint(dst_ip)
+        dst_ep.is_internal = _is_internal(dst_ip) if dst_ep.is_internal is None else dst_ep.is_internal
+        dst_ep.ot_protocols.add("enip")
+        dst_ep.protocols.add("enip")
+        dst_ep.services.add("enip")
+        if dst_port:
+            if dst_port not in dst_ep.open_ports:
+                dst_ep.open_ports[dst_port] = set()
+            dst_ep.open_ports[dst_port].add("enip")
+        _update_timestamps(dst_ep, ts)
+
+        if command:
+            src_ep.ot_functions.add(f"enip:cmd_{command}")
+
+        conn = self.net_map.get_or_create_connection(src_ip, dst_ip, dst_port, "tcp")
+        conn.service = "enip"
+        conn.count += 1
+        _update_timestamps(conn, ts)
+
+        self._classify_ot_device(src_ep)
+        self._classify_ot_device(dst_ep)
+
+    def _process_zeek_cip(self, doc: dict):
+        """Process Zeek cip.log entries (CIP over EtherNet/IP)."""
+        ts = _safe(doc, "@timestamp")
+        src_ip = _safe(doc, "source", "ip")
+        dst_ip = _safe(doc, "destination", "ip")
+        dst_port = _safe(doc, "destination", "port", default=44818)
+        cip_service = _safe(doc, "zeek", "cip", "service")
+        cip_status = _safe(doc, "zeek", "cip", "status")
+        class_id = _safe(doc, "zeek", "cip", "class_id")
+        instance_id = _safe(doc, "zeek", "cip", "instance_id")
+        vendor_id = _safe(doc, "zeek", "cip", "vendor_id")
+        device_type = _safe(doc, "zeek", "cip", "device_type")
+        product_name = _safe(doc, "zeek", "cip", "product_name")
+
+        if not src_ip or not dst_ip:
+            return
+
+        src_ep = self.net_map.get_or_create_endpoint(src_ip)
+        src_ep.is_internal = _is_internal(src_ip) if src_ep.is_internal is None else src_ep.is_internal
+        src_ep.ot_protocols.add("cip")
+        src_ep.protocols.add("cip")
+        _update_timestamps(src_ep, ts)
+
+        dst_ep = self.net_map.get_or_create_endpoint(dst_ip)
+        dst_ep.is_internal = _is_internal(dst_ip) if dst_ep.is_internal is None else dst_ep.is_internal
+        dst_ep.ot_protocols.add("cip")
+        dst_ep.protocols.add("cip")
+        dst_ep.services.add("cip")
+        if product_name:
+            dst_ep.ot_vendor = product_name
+        if dst_port:
+            if dst_port not in dst_ep.open_ports:
+                dst_ep.open_ports[dst_port] = set()
+            dst_ep.open_ports[dst_port].add("cip")
+        _update_timestamps(dst_ep, ts)
+
+        if cip_service:
+            src_ep.ot_functions.add(f"cip:svc_{cip_service}")
+
+        conn = self.net_map.get_or_create_connection(src_ip, dst_ip, dst_port, "tcp")
+        conn.service = "cip"
+        conn.count += 1
+        _update_timestamps(conn, ts)
+
+        self._classify_ot_device(src_ep)
+        self._classify_ot_device(dst_ep)
 
     # ------------------------------------------------------------------
     # Sysmon processors

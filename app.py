@@ -116,6 +116,7 @@ async def get_stats():
 async def list_endpoints(
     internal_only: bool = Query(False),
     external_only: bool = Query(False),
+    ot_only: bool = Query(False),
     search: str = Query(""),
 ):
     """List all endpoints with optional filters."""
@@ -125,6 +126,8 @@ async def list_endpoints(
             continue
         if external_only and ep.is_internal:
             continue
+        if ot_only and not ep.ot_protocols:
+            continue
         if search:
             q = search.lower()
             match = (
@@ -132,6 +135,8 @@ async def list_endpoints(
                 or any(q in h.lower() for h in ep.hostnames)
                 or (ep.sysmon_computer_name and q in ep.sysmon_computer_name.lower())
                 or any(q in s.lower() for s in ep.services)
+                or any(q in p.lower() for p in ep.ot_protocols)
+                or (ep.device_type and q in ep.device_type.lower())
             )
             if not match:
                 continue
