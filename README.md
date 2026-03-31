@@ -29,15 +29,17 @@ Elasticsearch (Security Onion)
                                               └─────────────┘
 ```
 
-## Setup
+## Deployment
 
-### 1. Install dependencies
+### Option A: Run Directly on Security Onion Manager
+
+#### 1. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure
+#### 2. Configure
 
 Copy the example environment file and fill in your Security Onion Elasticsearch details:
 
@@ -52,15 +54,83 @@ ES_USERNAME=elastic
 ES_PASSWORD=<your-password>
 ES_VERIFY_CERTS=false
 POLL_INTERVAL=30
+HOST=0.0.0.0
+PORT=8080
 ```
 
-### 3. Run
+#### 3. Run
 
 ```bash
 python app.py
 ```
 
-Open `http://localhost:8080` in your browser.
+Open `http://<manager-ip>:8080` in your browser.
+
+### Option B: Docker (Recommended for Air-Gapped Environments)
+
+A `Dockerfile` and helper script are included for building a self-contained image on an internet-connected machine and transferring it to an air-gapped Security Onion manager.
+
+#### On the internet-connected build machine
+
+```bash
+# Build the image and export it to a portable .tar.gz
+./deploy-airgap.sh build
+```
+
+This produces `syzeekmap-image.tar.gz` (~80-100 MB) containing all Python dependencies and a vendored copy of D3.js.
+
+#### Transfer to the air-gapped SO manager
+
+Copy the following files via USB or other sneakernet method:
+- `syzeekmap-image.tar.gz`
+- `deploy-airgap.sh`
+- `.env.example`
+
+#### On the air-gapped SO manager
+
+```bash
+# Load the image
+./deploy-airgap.sh load
+
+# Create and edit your config
+cp .env.example .env
+# Edit .env with your SO Elasticsearch credentials
+
+# Start the container
+./deploy-airgap.sh run
+
+# Stop when needed
+./deploy-airgap.sh stop
+```
+
+The container runs with `--network host` so it can reach Elasticsearch on `localhost:9200` without Docker bridge networking.
+
+If you have `docker compose` available you can also use:
+```bash
+docker compose up -d
+```
+
+### Security Onion Firewall Configuration
+
+Security Onion manages its firewall with Salt. To access syzeekMap from an analyst workstation you need to open the port through SO's firewall — adding it to the **nginx** portgroup will **not** work since syzeekMap runs as a standalone service, not behind nginx.
+
+1. **Create a portgroup** in `SOC UI → Administration → Configuration → Firewall → portgroups`:
+   - Name: `syzeekmap`
+   - Value: `tcp/8080` (or whatever port you configured)
+
+2. **Add your analyst workstation IP** to a hostgroup (e.g., `analyst`) under `Firewall → hostgroups`, if not already present.
+
+3. **Map the hostgroup to the portgroup** under the role's firewall settings so the analyst hostgroup is allowed to reach the `syzeekmap` portgroup.
+
+4. **Apply the firewall changes**:
+   ```bash
+   sudo salt-call state.apply firewall
+   ```
+
+5. **Verify**:
+   ```bash
+   sudo iptables -L INPUT -n | grep 8080
+   ```
 
 ## Data Sources
 
