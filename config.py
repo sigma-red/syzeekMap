@@ -15,5 +15,8 @@ class Config:
 
     POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "30"))
 
+    # Default lookback window for initial data load (e.g. "24h", "7d", "1h")
+    DEFAULT_TIME_RANGE = os.getenv("DEFAULT_TIME_RANGE", "24h")
+
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "8080"))

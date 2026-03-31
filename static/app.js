@@ -712,6 +712,36 @@
         document.getElementById("filter-external").addEventListener("change", filterAndRefresh);
         document.getElementById("filter-ot").addEventListener("change", filterAndRefresh);
 
+        // Time range preset buttons
+        document.querySelectorAll(".time-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                document.querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                setTimeRange(btn.dataset.range, null);
+            });
+        });
+
+        // Custom time range
+        document.getElementById("time-custom-apply").addEventListener("click", () => {
+            const fromEl = document.getElementById("time-from");
+            const toEl = document.getElementById("time-to");
+            if (!fromEl.value) return;
+            const fromISO = new Date(fromEl.value).toISOString();
+            const toISO = toEl.value ? new Date(toEl.value).toISOString() : null;
+            // Compute a duration string from the range for the backend
+            const fromMs = new Date(fromEl.value).getTime();
+            const toMs = toEl.value ? new Date(toEl.value).getTime() : Date.now();
+            const diffH = Math.max(1, Math.round((toMs - fromMs) / 3600000));
+            const rangeStr = diffH >= 24 ? `${Math.round(diffH / 24)}d` : `${diffH}h`;
+
+            document.querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
+            // We pass fromISO as the anchor by computing: until=toISO, range=duration
+            setTimeRange(rangeStr, toISO);
+        });
+
+        // Fetch current time range on load
+        fetchTimeRange();
+
         // Layout switcher buttons
         document.querySelectorAll(".layout-btn").forEach(btn => {
             btn.addEventListener("click", () => {
@@ -790,6 +820,51 @@
         }
 
         updateGraph(filtered);
+    }
+
+    // ── Time range ─────────────────────────────────────────────────
+    async function setTimeRange(range, until) {
+        const statusEl = document.getElementById("time-range-status");
+        statusEl.textContent = "Reloading...";
+        statusEl.className = "time-status loading";
+        try {
+            const body = { time_range: range };
+            if (until) body.until = until;
+            const resp = await fetch("/api/timerange", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            const data = await resp.json();
+            if (data.error) {
+                statusEl.textContent = data.error;
+                statusEl.className = "time-status error";
+                return;
+            }
+            statusEl.textContent = `Showing last ${range}${until ? " (fixed window)" : ""}`;
+            statusEl.className = "time-status";
+            // Data will arrive via WebSocket update; also fetch immediately after short delay
+            setTimeout(fetchGraph, 2000);
+        } catch (e) {
+            statusEl.textContent = "Failed to set time range";
+            statusEl.className = "time-status error";
+        }
+    }
+
+    async function fetchTimeRange() {
+        try {
+            const resp = await fetch("/api/timerange");
+            const data = await resp.json();
+            const statusEl = document.getElementById("time-range-status");
+            statusEl.textContent = `Showing last ${data.time_range}${data.until ? " (fixed)" : ""}`;
+            statusEl.className = "time-status";
+            // Highlight matching preset button
+            document.querySelectorAll(".time-btn").forEach(b => {
+                b.classList.toggle("active", b.dataset.range === data.time_range && !data.until);
+            });
+        } catch (e) {
+            // Ignore on load
+        }
     }
 
     // ── Data fetching ──────────────────────────────────────────────

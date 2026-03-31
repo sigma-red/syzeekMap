@@ -12,13 +12,14 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Body
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from config import Config
 from elastic_client import ElasticClient
-from ingest import IngestEngine
+from ingest import IngestEngine, parse_time_range
 from models import NetworkMap
 
 logging.basicConfig(
@@ -194,6 +195,53 @@ async def get_dns_map(search: str = Query("")):
             continue
         result[domain] = sorted(ips)
     return JSONResponse(result)
+
+
+# ------------------------------------------------------------------
+# Time range control
+# ------------------------------------------------------------------
+
+class TimeRangeRequest(BaseModel):
+    time_range: str  # e.g. "1h", "4h", "24h", "7d"
+    until: str | None = None  # ISO 8601 timestamp, None = live/now
+
+
+@app.get("/api/timerange")
+async def get_time_range():
+    """Return the current time range settings."""
+    return JSONResponse({
+        "time_range": ingest_engine.time_range,
+        "until": ingest_engine.time_until,
+    })
+
+
+@app.post("/api/timerange")
+async def set_time_range(req: TimeRangeRequest):
+    """Set the time range and trigger a full data reload."""
+    # Validate the time_range spec
+    if not parse_time_range(req.time_range):
+        return JSONResponse(
+            {"error": f"Invalid time range: {req.time_range}. Use format like 30m, 1h, 24h, 7d, 2w"},
+            status_code=400,
+        )
+    ingest_engine.set_time_range(req.time_range, req.until)
+    # Trigger an immediate poll cycle in the background
+    asyncio.create_task(_reload_and_notify())
+    return JSONResponse({
+        "status": "ok",
+        "time_range": req.time_range,
+        "until": req.until,
+        "message": "Reloading data for new time range...",
+    })
+
+
+async def _reload_and_notify():
+    """Run a poll cycle and broadcast the result."""
+    try:
+        await asyncio.to_thread(ingest_engine.run_poll_cycle)
+        await broadcast_update()
+    except Exception as e:
+        logger.error("Reload after time range change failed: %s", e, exc_info=True)
 
 
 # ------------------------------------------------------------------

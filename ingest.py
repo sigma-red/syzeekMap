@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 
 from elastic_client import ElasticClient
+from config import Config
 from models import Endpoint, NetworkMap
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,24 @@ def _update_timestamps(obj, timestamp: str | None):
         obj.last_seen = timestamp
 
 
+def parse_time_range(spec: str) -> timedelta | None:
+    """Parse a human-readable time range like '1h', '30m', '7d' into a timedelta."""
+    m = re.match(r"^(\d+)\s*([mhdw])$", spec.strip().lower())
+    if not m:
+        return None
+    val = int(m.group(1))
+    unit = m.group(2)
+    if unit == "m":
+        return timedelta(minutes=val)
+    if unit == "h":
+        return timedelta(hours=val)
+    if unit == "d":
+        return timedelta(days=val)
+    if unit == "w":
+        return timedelta(weeks=val)
+    return None
+
+
 class IngestEngine:
     """Pulls data from Elasticsearch and updates the NetworkMap."""
 
@@ -53,12 +73,47 @@ class IngestEngine:
         self.es = es_client
         self.net_map = network_map
         self._last_timestamp: str | None = None
+        # Time window: controls how far back to look on first poll / reload
+        self._time_range: str = Config.DEFAULT_TIME_RANGE
+        # Optional fixed upper bound (ISO string) — None means "now"
+        self._time_until: str | None = None
+
+    @property
+    def time_range(self) -> str:
+        return self._time_range
+
+    @property
+    def time_until(self) -> str | None:
+        return self._time_until
+
+    def set_time_range(self, time_range: str, time_until: str | None = None):
+        """Set a new time window and trigger a full data reload."""
+        self._time_range = time_range
+        self._time_until = time_until
+        self._last_timestamp = None  # Force full reload on next cycle
+        # Clear the network map so stale data from old range is removed
+        self.net_map.endpoints.clear()
+        self.net_map.connections.clear()
+        self.net_map.dns_map.clear()
+        logger.info("Time range changed to %s (until=%s) — will reload on next poll", time_range, time_until or "now")
+
+    def _compute_since(self) -> str | None:
+        """Compute the 'since' timestamp for the current poll."""
+        if self._last_timestamp:
+            return self._last_timestamp
+        # First poll: compute from time_range spec
+        td = parse_time_range(self._time_range)
+        if td:
+            anchor = datetime.now(timezone.utc) if not self._time_until else datetime.fromisoformat(self._time_until)
+            return (anchor - td).isoformat()
+        return None
 
     def run_poll_cycle(self):
         """Execute a full poll cycle, fetching new data since last poll."""
-        since = self._last_timestamp
+        since = self._compute_since()
+        until = self._time_until  # None means no upper bound (live)
         now = datetime.now(timezone.utc).isoformat()
-        logger.info("Poll cycle started (since=%s)", since or "beginning")
+        logger.info("Poll cycle started (since=%s, until=%s)", since or "beginning", until or "now")
 
         counts = {
             "zeek_conn": 0,
@@ -80,77 +135,77 @@ class IngestEngine:
         }
 
         # --- Zeek conn.log ---
-        for doc in self.es.fetch_zeek_conn(since):
+        for doc in self.es.fetch_zeek_conn(since, until):
             self._process_zeek_conn(doc)
             counts["zeek_conn"] += 1
 
         # --- Zeek dns.log ---
-        for doc in self.es.fetch_zeek_dns(since):
+        for doc in self.es.fetch_zeek_dns(since, until):
             self._process_zeek_dns(doc)
             counts["zeek_dns"] += 1
 
         # --- Zeek ssl.log ---
-        for doc in self.es.fetch_zeek_ssl(since):
+        for doc in self.es.fetch_zeek_ssl(since, until):
             self._process_zeek_ssl(doc)
             counts["zeek_ssl"] += 1
 
         # --- Zeek http.log ---
-        for doc in self.es.fetch_zeek_http(since):
+        for doc in self.es.fetch_zeek_http(since, until):
             self._process_zeek_http(doc)
             counts["zeek_http"] += 1
 
         # --- Zeek x509 ---
-        for doc in self.es.fetch_zeek_x509(since):
+        for doc in self.es.fetch_zeek_x509(since, until):
             self._process_zeek_x509(doc)
             counts["zeek_x509"] += 1
 
         # --- Zeek software ---
-        for doc in self.es.fetch_zeek_software(since):
+        for doc in self.es.fetch_zeek_software(since, until):
             self._process_zeek_software(doc)
             counts["zeek_software"] += 1
 
         # --- Zeek kerberos ---
-        for doc in self.es.fetch_zeek_kerberos(since):
+        for doc in self.es.fetch_zeek_kerberos(since, until):
             self._process_zeek_kerberos(doc)
             counts["zeek_kerberos"] += 1
 
         # --- Zeek ICS/OT protocols ---
-        for doc in self.es.fetch_zeek_modbus(since):
+        for doc in self.es.fetch_zeek_modbus(since, until):
             self._process_zeek_modbus(doc)
             counts["zeek_modbus"] += 1
 
-        for doc in self.es.fetch_zeek_dnp3(since):
+        for doc in self.es.fetch_zeek_dnp3(since, until):
             self._process_zeek_dnp3(doc)
             counts["zeek_dnp3"] += 1
 
-        for doc in self.es.fetch_zeek_s7comm(since):
+        for doc in self.es.fetch_zeek_s7comm(since, until):
             self._process_zeek_s7comm(doc)
             counts["zeek_s7comm"] += 1
 
-        for doc in self.es.fetch_zeek_bacnet(since):
+        for doc in self.es.fetch_zeek_bacnet(since, until):
             self._process_zeek_bacnet(doc)
             counts["zeek_bacnet"] += 1
 
-        for doc in self.es.fetch_zeek_enip(since):
+        for doc in self.es.fetch_zeek_enip(since, until):
             self._process_zeek_enip(doc)
             counts["zeek_enip"] += 1
 
-        for doc in self.es.fetch_zeek_cip(since):
+        for doc in self.es.fetch_zeek_cip(since, until):
             self._process_zeek_cip(doc)
             counts["zeek_cip"] += 1
 
         # --- Sysmon network connections (Event ID 3) ---
-        for doc in self.es.fetch_sysmon_network(since):
+        for doc in self.es.fetch_sysmon_network(since, until):
             self._process_sysmon_network(doc)
             counts["sysmon_net"] += 1
 
         # --- Sysmon process creation (Event ID 1) ---
-        for doc in self.es.fetch_sysmon_process_create(since):
+        for doc in self.es.fetch_sysmon_process_create(since, until):
             self._process_sysmon_process(doc)
             counts["sysmon_proc"] += 1
 
         # --- Sysmon DNS (Event ID 22) ---
-        for doc in self.es.fetch_sysmon_dns(since):
+        for doc in self.es.fetch_sysmon_dns(since, until):
             self._process_sysmon_dns(doc)
             counts["sysmon_dns"] += 1
 

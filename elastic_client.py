@@ -73,87 +73,87 @@ class ElasticClient:
     # Zeek queries
     # ------------------------------------------------------------------
 
-    def fetch_zeek_conn(self, since: str | None = None) -> Generator[dict, None, None]:
+    def fetch_zeek_conn(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
         """Fetch Zeek conn.log entries."""
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "conn"}})
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "conn"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_dns(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "dns"}})
+    def fetch_zeek_dns(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "dns"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_ssl(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "ssl"}})
+    def fetch_zeek_ssl(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "ssl"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_http(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "http"}})
+    def fetch_zeek_http(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "http"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_x509(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "x509"}})
+    def fetch_zeek_x509(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "x509"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_software(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "software"}})
+    def fetch_zeek_software(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "software"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_kerberos(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "kerberos"}})
+    def fetch_zeek_kerberos(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "kerberos"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
     # ------------------------------------------------------------------
     # Zeek ICS/OT protocol queries
     # ------------------------------------------------------------------
 
-    def fetch_zeek_modbus(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "modbus"}})
+    def fetch_zeek_modbus(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "modbus"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_dnp3(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "dnp3"}})
+    def fetch_zeek_dnp3(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "dnp3"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_s7comm(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "s7comm"}})
+    def fetch_zeek_s7comm(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "s7comm"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_bacnet(self, since: str | None = None) -> Generator[dict, None, None]:
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "bacnet"}})
+    def fetch_zeek_bacnet(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "bacnet"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_enip(self, since: str | None = None) -> Generator[dict, None, None]:
+    def fetch_zeek_enip(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
         """EtherNet/IP (CIP) protocol."""
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "enip"}})
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "enip"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
-    def fetch_zeek_cip(self, since: str | None = None) -> Generator[dict, None, None]:
+    def fetch_zeek_cip(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
         """CIP (Common Industrial Protocol) over EtherNet/IP."""
-        query = self._time_range_query(since, extra_filter={"term": {"event.dataset": "cip"}})
+        query = self._time_range_query(since, until, extra_filter={"term": {"event.dataset": "cip"}})
         yield from self._scroll_query(Config.ZEEK_INDEX_PATTERN, query)
 
     # ------------------------------------------------------------------
     # Sysmon queries
     # ------------------------------------------------------------------
 
-    def fetch_sysmon_network(self, since: str | None = None) -> Generator[dict, None, None]:
+    def fetch_sysmon_network(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
         """Sysmon Event ID 3 - Network connection."""
         query = self._time_range_query(
-            since, extra_filter={"term": {"winlog.event_id": 3}}
+            since, until, extra_filter={"term": {"winlog.event_id": 3}}
         )
         yield from self._scroll_query(Config.SYSMON_INDEX_PATTERN, query)
 
-    def fetch_sysmon_process_create(self, since: str | None = None) -> Generator[dict, None, None]:
+    def fetch_sysmon_process_create(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
         """Sysmon Event ID 1 - Process creation."""
         query = self._time_range_query(
-            since, extra_filter={"term": {"winlog.event_id": 1}}
+            since, until, extra_filter={"term": {"winlog.event_id": 1}}
         )
         yield from self._scroll_query(Config.SYSMON_INDEX_PATTERN, query)
 
-    def fetch_sysmon_dns(self, since: str | None = None) -> Generator[dict, None, None]:
+    def fetch_sysmon_dns(self, since: str | None = None, until: str | None = None) -> Generator[dict, None, None]:
         """Sysmon Event ID 22 - DNS query."""
         query = self._time_range_query(
-            since, extra_filter={"term": {"winlog.event_id": 22}}
+            since, until, extra_filter={"term": {"winlog.event_id": 22}}
         )
         yield from self._scroll_query(Config.SYSMON_INDEX_PATTERN, query)
 
@@ -162,10 +162,19 @@ class ElasticClient:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _time_range_query(since: str | None, extra_filter: dict | None = None) -> dict:
+    def _time_range_query(
+        since: str | None,
+        until: str | None = None,
+        extra_filter: dict | None = None,
+    ) -> dict:
         filters: list[dict] = []
-        if since:
-            filters.append({"range": {"@timestamp": {"gt": since}}})
+        if since or until:
+            ts_range: dict = {}
+            if since:
+                ts_range["gt"] = since
+            if until:
+                ts_range["lte"] = until
+            filters.append({"range": {"@timestamp": ts_range}})
         if extra_filter:
             filters.append(extra_filter)
         if filters:

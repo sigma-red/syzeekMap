@@ -44,6 +44,25 @@
                         <input type="text" id="search-input" placeholder="Search endpoints..." />
                     </div>
                     <div class="control-group">
+                        <label class="control-label">Time Range</label>
+                        <div class="time-range-picker">
+                            <button class="time-btn" data-range="30m">30m</button>
+                            <button class="time-btn" data-range="1h">1h</button>
+                            <button class="time-btn" data-range="4h">4h</button>
+                            <button class="time-btn" data-range="12h">12h</button>
+                            <button class="time-btn active" data-range="24h">24h</button>
+                            <button class="time-btn" data-range="7d">7d</button>
+                            <button class="time-btn" data-range="30d">30d</button>
+                        </div>
+                        <div class="time-custom-row">
+                            <input type="datetime-local" id="time-from" class="time-input" title="Start time">
+                            <span class="time-sep">to</span>
+                            <input type="datetime-local" id="time-to" class="time-input" title="End time (blank = now)">
+                            <button id="time-custom-apply" class="btn btn-sm" title="Apply custom range">Go</button>
+                        </div>
+                        <div id="time-range-status" class="time-status"></div>
+                    </div>
+                    <div class="control-group">
                         <label><input type="checkbox" id="filter-internal"> Internal only</label>
                         <label><input type="checkbox" id="filter-external"> External only</label>
                         <label><input type="checkbox" id="filter-ot"> OT/ICS only</label>
