@@ -175,6 +175,9 @@
         updateEndpointList(nodes);
         updateHulls();
         updateLegend();
+
+        // Auto-refresh detail panel if one is open
+        if (selectedNodeId) refreshDetailPanel();
     }
 
     function ticked() {
@@ -529,6 +532,22 @@
     }
 
     // ── Node selection & detail panel ──────────────────────────────
+
+    async function refreshDetailPanel() {
+        if (!selectedNodeId) return;
+        const panel = document.getElementById("detail-panel");
+        if (panel.classList.contains("hidden")) return;
+        const content = document.getElementById("detail-content");
+        try {
+            const resp = await fetch(`/api/endpoints/${encodeURIComponent(selectedNodeId)}`);
+            const data = await resp.json();
+            if (data.error) return; // Node may have been removed after time range change
+            renderEndpointDetail(data, content);
+        } catch (e) {
+            // Silently fail — don't disrupt the user with errors on background refresh
+        }
+    }
+
     async function selectNode(ip) {
         selectedNodeId = ip;
 
