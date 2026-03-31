@@ -396,6 +396,129 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
+/* Layout switcher */
+.control-label {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.layout-switcher {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    padding: 2px;
+}
+
+.layout-btn {
+    flex: 1;
+    padding: 4px 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+}
+.layout-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+.layout-btn.active {
+    background: var(--bg-tertiary);
+    color: var(--accent-cyan);
+    border-color: var(--border);
+}
+
+/* Layout label toast */
+.layout-label {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 11px;
+    color: var(--accent-cyan);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    z-index: 30;
+}
+.layout-label.visible { opacity: 1; }
+
+/* Subnet convex hulls */
+.subnet-hull {
+    fill-opacity: 0.06;
+    stroke-opacity: 0.25;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 2;
+    pointer-events: none;
+}
+
+/* Band lines for hierarchical / purdue layouts */
+.band-line {
+    stroke: var(--border);
+    stroke-width: 1;
+    stroke-dasharray: 6 4;
+    opacity: 0.5;
+}
+.band-label {
+    fill: var(--text-muted);
+    font-size: 10px;
+    font-family: inherit;
+    opacity: 0.7;
+}
+
+/* Subnet legend */
+.subnet-legend {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 30;
+}
+.subnet-legend.hidden { display: none; }
+
+.legend-title {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 1px 0;
+    color: var(--text-secondary);
+}
+
+.legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
 /* Loading overlay */
 .loading-overlay {
     position: absolute;

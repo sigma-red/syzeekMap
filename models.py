@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -65,6 +66,18 @@ class Endpoint:
             "purdue_level": self.purdue_level,
         }
 
+    @property
+    def subnet(self) -> str:
+        """Return the /24 subnet for this IP (used for visual grouping)."""
+        try:
+            addr = ipaddress.ip_address(self.ip)
+            if isinstance(addr, ipaddress.IPv4Address):
+                net = ipaddress.IPv4Network(f"{self.ip}/24", strict=False)
+                return str(net)
+            return str(ipaddress.IPv6Network(f"{self.ip}/64", strict=False))
+        except ValueError:
+            return "unknown"
+
     def to_node(self) -> dict:
         """Compact representation for graph visualization."""
         label = self.ip
@@ -77,6 +90,7 @@ class Endpoint:
             "label": label,
             "ip": self.ip,
             "is_internal": self.is_internal,
+            "subnet": self.subnet,
             "services": sorted(self.services),
             "open_port_count": len(self.open_ports),
             "connection_count": self.connection_count,

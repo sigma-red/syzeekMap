@@ -15,8 +15,31 @@
     let simulation = null;
     let selectedNodeId = null;
 
+    // Layout state
+    let currentLayout = "force";   // force | subnet | hierarchical | purdue
+    let showHulls = true;
+    let subnetColorMap = {};       // subnet string -> color
+
+    // Subnet color palette (20 distinct colors for grouping)
+    const SUBNET_PALETTE = [
+        "#3b82f6", "#22c55e", "#f97316", "#a855f7", "#06b6d4",
+        "#eab308", "#ef4444", "#ec4899", "#14b8a6", "#8b5cf6",
+        "#f43f5e", "#84cc16", "#0ea5e9", "#d946ef", "#f59e0b",
+        "#10b981", "#6366f1", "#e11d48", "#0891b2", "#65a30d",
+    ];
+
+    // Purdue level labels and Y-band positions
+    const PURDUE_LABELS = {
+        0: "L0 - Physical Process",
+        1: "L1 - Basic Control",
+        2: "L2 - Area Supervision",
+        3: "L3 - Site Operations",
+        4: "L4 - Enterprise IT",
+        5: "L5 - Internet/DMZ",
+    };
+
     // D3 selections (initialized in initGraph)
-    let svg, container, linkGroup, nodeGroup, labelGroup, linkLabelGroup;
+    let svg, container, hullGroup, linkGroup, nodeGroup, labelGroup, linkLabelGroup, bandGroup;
     let zoom;
 
     // ── Initialization ─────────────────────────────────────────────
@@ -56,6 +79,8 @@
             .attr("d", "M0,-4L10,0L0,4")
             .attr("fill", "#334155");
 
+        bandGroup = container.append("g").attr("class", "bands");
+        hullGroup = container.append("g").attr("class", "hulls");
         linkGroup = container.append("g").attr("class", "links");
         linkLabelGroup = container.append("g").attr("class", "link-labels");
         nodeGroup = container.append("g").attr("class", "nodes");
@@ -68,11 +93,12 @@
             .force("collision", d3.forceCollide().radius(30))
             .on("tick", ticked);
 
-        // Handle window resize
+        // Handle window resize — re-apply current layout
         window.addEventListener("resize", () => {
-            const w = svg.node().parentElement.clientWidth;
-            const h = svg.node().parentElement.clientHeight;
-            simulation.force("center", d3.forceCenter(w / 2, h / 2));
+            if (graphData.nodes && graphData.nodes.length) {
+                const edges = graphData.edges || [];
+                applyLayout(graphData.nodes, edges);
+            }
         });
     }
 
@@ -140,12 +166,15 @@
             .attr("stroke", d => selectedNodeId === d.id ? "#fff" : d3.color(nodeColor(d)).brighter(0.5))
             .attr("stroke-width", d => selectedNodeId === d.id ? 3 : 2);
 
-        // ── Simulation ──
-        simulation.nodes(nodes);
-        simulation.force("link").links(edges);
-        simulation.alpha(0.3).restart();
+        // ── Build subnet color map ──
+        buildSubnetColors(nodes);
+
+        // ── Apply layout and start simulation ──
+        applyLayout(nodes, edges);
 
         updateEndpointList(nodes);
+        updateHulls();
+        updateLegend();
     }
 
     function ticked() {
@@ -161,6 +190,248 @@
 
         nodeGroup.selectAll("g.node")
             .attr("transform", d => `translate(${d.x},${d.y})`);
+
+        // Redraw subnet convex hulls each tick
+        if (showHulls) redrawHulls();
+    }
+
+    // ── Layout engines ──────────────────────────────────────────────
+
+    function buildSubnetColors(nodes) {
+        const subnets = [...new Set(nodes.map(n => n.subnet).filter(Boolean))].sort();
+        subnetColorMap = {};
+        subnets.forEach((s, i) => {
+            subnetColorMap[s] = SUBNET_PALETTE[i % SUBNET_PALETTE.length];
+        });
+    }
+
+    function applyLayout(nodes, edges) {
+        const width = svg.node().parentElement.clientWidth;
+        const height = svg.node().parentElement.clientHeight;
+
+        // Stop old simulation
+        simulation.stop();
+
+        // Clear layout bands
+        bandGroup.selectAll("*").remove();
+
+        // Reset fixed positions
+        nodes.forEach(n => { n.fx = null; n.fy = null; });
+
+        // Rebuild simulation fresh
+        simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(edges).id(d => d.id).distance(120))
+            .force("collision", d3.forceCollide().radius(30))
+            .on("tick", ticked);
+
+        if (currentLayout === "force") {
+            simulation
+                .force("charge", d3.forceManyBody().strength(-300))
+                .force("center", d3.forceCenter(width / 2, height / 2));
+            // Remove layout-specific forces
+            simulation.force("x", null).force("y", null);
+
+        } else if (currentLayout === "subnet") {
+            // Cluster nodes by subnet using forceX/forceY toward computed centers
+            const subnets = [...new Set(nodes.map(n => n.subnet).filter(Boolean))].sort();
+            const cols = Math.ceil(Math.sqrt(subnets.length));
+            const cellW = width / (cols + 1);
+            const rows = Math.ceil(subnets.length / cols);
+            const cellH = height / (rows + 1);
+            const subnetCenters = {};
+            subnets.forEach((s, i) => {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                subnetCenters[s] = {
+                    x: cellW * (col + 1),
+                    y: cellH * (row + 1),
+                };
+            });
+
+            simulation
+                .force("charge", d3.forceManyBody().strength(-200))
+                .force("center", null)
+                .force("x", d3.forceX(d => {
+                    const c = subnetCenters[d.subnet];
+                    return c ? c.x : width / 2;
+                }).strength(0.7))
+                .force("y", d3.forceY(d => {
+                    const c = subnetCenters[d.subnet];
+                    return c ? c.y : height / 2;
+                }).strength(0.7));
+
+        } else if (currentLayout === "hierarchical") {
+            // Top-to-bottom: external at top, unknown middle, internal at bottom
+            const tierY = {
+                "external": height * 0.15,
+                "unknown": height * 0.5,
+                "internal": height * 0.85,
+            };
+            const tierLabels = { "external": "External", "unknown": "Unknown", "internal": "Internal" };
+
+            // Draw horizontal band labels
+            Object.entries(tierY).forEach(([tier, y]) => {
+                bandGroup.append("line")
+                    .attr("x1", 0).attr("x2", width)
+                    .attr("y1", y).attr("y2", y)
+                    .attr("class", "band-line");
+                bandGroup.append("text")
+                    .attr("x", 30).attr("y", y - 8)
+                    .attr("class", "band-label")
+                    .text(tierLabels[tier]);
+            });
+
+            simulation
+                .force("charge", d3.forceManyBody().strength(-200))
+                .force("center", null)
+                .force("x", d3.forceX(width / 2).strength(0.05))
+                .force("y", d3.forceY(d => {
+                    if (d.is_internal === false) return tierY.external;
+                    if (d.is_internal === true) return tierY.internal;
+                    return tierY.unknown;
+                }).strength(0.8));
+
+        } else if (currentLayout === "purdue") {
+            // Horizontal bands for Purdue levels 0-5, plus "unclassified"
+            const levels = [5, 4, 3, 2, 1, 0];
+            const bandH = height / (levels.length + 2); // +2 for unclassified + padding
+            const levelY = {};
+            levels.forEach((lvl, i) => {
+                levelY[lvl] = bandH * (i + 1);
+            });
+            const unclassifiedY = bandH * (levels.length + 1);
+
+            // Draw horizontal band labels and lines
+            levels.forEach(lvl => {
+                const y = levelY[lvl];
+                bandGroup.append("line")
+                    .attr("x1", 0).attr("x2", width)
+                    .attr("y1", y).attr("y2", y)
+                    .attr("class", "band-line");
+                bandGroup.append("text")
+                    .attr("x", 30).attr("y", y - 8)
+                    .attr("class", "band-label")
+                    .text(PURDUE_LABELS[lvl] || `Level ${lvl}`);
+            });
+            bandGroup.append("line")
+                .attr("x1", 0).attr("x2", width)
+                .attr("y1", unclassifiedY).attr("y2", unclassifiedY)
+                .attr("class", "band-line");
+            bandGroup.append("text")
+                .attr("x", 30).attr("y", unclassifiedY - 8)
+                .attr("class", "band-label")
+                .text("Unclassified");
+
+            simulation
+                .force("charge", d3.forceManyBody().strength(-200))
+                .force("center", null)
+                .force("x", d3.forceX(width / 2).strength(0.05))
+                .force("y", d3.forceY(d => {
+                    if (d.purdue_level !== null && d.purdue_level !== undefined && levelY[d.purdue_level] !== undefined) {
+                        return levelY[d.purdue_level];
+                    }
+                    return unclassifiedY;
+                }).strength(0.8));
+        }
+
+        simulation.alpha(1).restart();
+    }
+
+    // ── Subnet convex hulls ────────────────────────────────────────
+
+    function updateHulls() {
+        hullGroup.selectAll("path.subnet-hull").remove();
+
+        if (!showHulls) return;
+
+        const nodes = graphData.nodes || [];
+        if (!nodes.length) return;
+
+        // Group nodes by subnet
+        const groups = {};
+        nodes.forEach(n => {
+            if (!n.subnet) return;
+            if (!groups[n.subnet]) groups[n.subnet] = [];
+            groups[n.subnet].push(n);
+        });
+
+        Object.entries(groups).forEach(([subnet, members]) => {
+            if (members.length < 2) return; // Need 2+ nodes for a hull
+
+            const color = subnetColorMap[subnet] || "#64748b";
+            hullGroup.append("path")
+                .attr("class", "subnet-hull")
+                .attr("fill", color)
+                .attr("stroke", color)
+                .datum({ subnet, members });
+        });
+    }
+
+    function redrawHulls() {
+        hullGroup.selectAll("path.subnet-hull").each(function (d) {
+            const points = d.members
+                .filter(m => m.x !== undefined && m.y !== undefined)
+                .map(m => [m.x, m.y]);
+            if (points.length < 2) {
+                d3.select(this).attr("d", null);
+                return;
+            }
+            // Pad hull outward so it wraps around nodes
+            if (points.length === 2) {
+                // For exactly 2 points, draw an ellipse-like shape
+                const [a, b] = points;
+                const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+                const pad = 30;
+                d3.select(this).attr("d",
+                    `M${a[0] - pad},${a[1]} ` +
+                    `A${pad},${pad} 0 0,1 ${a[0] + pad},${a[1]} ` +
+                    `L${b[0] + pad},${b[1]} ` +
+                    `A${pad},${pad} 0 0,1 ${b[0] - pad},${b[1]} Z`
+                );
+            } else {
+                const hull = d3.polygonHull(points);
+                if (!hull) { d3.select(this).attr("d", null); return; }
+                // Expand hull outward by padding
+                const padded = expandPolygon(hull, 25);
+                d3.select(this).attr("d", hullPath(padded));
+            }
+        });
+    }
+
+    function expandPolygon(polygon, padding) {
+        // Compute centroid
+        const cx = polygon.reduce((s, p) => s + p[0], 0) / polygon.length;
+        const cy = polygon.reduce((s, p) => s + p[1], 0) / polygon.length;
+        return polygon.map(([x, y]) => {
+            const dx = x - cx, dy = y - cy;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            return [x + (dx / dist) * padding, y + (dy / dist) * padding];
+        });
+    }
+
+    function hullPath(points) {
+        // Smooth rounded hull path using curves
+        if (points.length < 3) return "";
+        let path = `M${points[0][0]},${points[0][1]}`;
+        for (let i = 1; i < points.length; i++) {
+            path += `L${points[i][0]},${points[i][1]}`;
+        }
+        path += "Z";
+        return path;
+    }
+
+    function updateLegend() {
+        const legend = document.getElementById("subnet-legend");
+        const subnets = Object.keys(subnetColorMap).sort();
+        if (!subnets.length || (!showHulls && currentLayout !== "subnet")) {
+            legend.classList.add("hidden");
+            return;
+        }
+        legend.classList.remove("hidden");
+        legend.innerHTML = '<div class="legend-title">Subnets</div>' + subnets.map(s => {
+            const color = subnetColorMap[s];
+            return `<div class="legend-item"><span class="legend-swatch" style="background:${color}"></span>${escapeHtml(s)}</div>`;
+        }).join("");
     }
 
     // ── Node helpers ───────────────────────────────────────────────
@@ -440,6 +711,32 @@
         document.getElementById("filter-internal").addEventListener("change", filterAndRefresh);
         document.getElementById("filter-external").addEventListener("change", filterAndRefresh);
         document.getElementById("filter-ot").addEventListener("change", filterAndRefresh);
+
+        // Layout switcher buttons
+        document.querySelectorAll(".layout-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const layout = btn.dataset.layout;
+                if (layout === currentLayout) return;
+                currentLayout = layout;
+                document.querySelectorAll(".layout-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                // Show layout label briefly
+                const layoutLabel = document.getElementById("layout-label");
+                layoutLabel.textContent = btn.title;
+                layoutLabel.classList.add("visible");
+                setTimeout(() => layoutLabel.classList.remove("visible"), 2000);
+                // Re-apply layout with current graph data
+                filterAndRefresh();
+            });
+        });
+
+        // Hull toggle
+        document.getElementById("toggle-hulls").addEventListener("change", (e) => {
+            showHulls = e.target.checked;
+            updateHulls();
+            updateLegend();
+            if (showHulls) redrawHulls();
+        });
 
         document.getElementById("btn-refresh").addEventListener("click", fetchGraph);
 

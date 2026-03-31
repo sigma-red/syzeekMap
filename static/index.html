@@ -49,6 +49,18 @@
                         <label><input type="checkbox" id="filter-ot"> OT/ICS only</label>
                     </div>
                     <div class="control-group">
+                        <label class="control-label">Layout</label>
+                        <div class="layout-switcher">
+                            <button class="layout-btn active" data-layout="force" title="Force-directed layout">Force</button>
+                            <button class="layout-btn" data-layout="subnet" title="Group nodes by /24 subnet">Subnet</button>
+                            <button class="layout-btn" data-layout="hierarchical" title="External → Internal tiers">Hierarchy</button>
+                            <button class="layout-btn" data-layout="purdue" title="OT Purdue model levels">Purdue</button>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label><input type="checkbox" id="toggle-hulls" checked> Show subnet hulls</label>
+                    </div>
+                    <div class="control-group">
                         <button id="btn-refresh" class="btn">Refresh Graph</button>
                         <button id="btn-fit" class="btn">Fit View</button>
                     </div>
@@ -63,6 +75,8 @@
             <div id="graph-container">
                 <svg id="graph-svg"></svg>
                 <div id="graph-tooltip" class="tooltip hidden"></div>
+                <div id="subnet-legend" class="subnet-legend hidden"></div>
+                <div id="layout-label" class="layout-label"></div>
             </div>
 
             <!-- Right panel - detail view -->
